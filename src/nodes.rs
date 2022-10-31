@@ -1,7 +1,9 @@
 use coremidi::{Destination, EventBuffer, Protocol};
+use crossterm::{cursor, style, terminal, ExecutableCommand};
 use std::time::Duration;
+use std::{collections::HashMap, io::stdout};
 use tokio::{
-    sync::broadcast::{self, Receiver},
+    sync::broadcast::{self, Receiver, Sender},
     task::JoinHandle,
     time::sleep,
 };
@@ -27,17 +29,20 @@ pub async fn play() {
     let ride_cup = 0x3300;
 
     let (tx, _) = broadcast::channel::<usize>(16);
+    let (send_info, mut recv_info) = broadcast::channel::<(String, usize)>(16);
 
     spawn_pattern_thread(
         "kick".into(),
+        send_info.clone(),
         tx.subscribe(),
         kick,
-        0x64,
+        0x56,
         Pattern::from("X..X..X.X.."),
     );
 
     spawn_pattern_thread(
         "snare".into(),
+        send_info.clone(),
         tx.subscribe(),
         snare_1,
         0x40,
@@ -46,6 +51,7 @@ pub async fn play() {
 
     spawn_pattern_thread(
         "closed_hat".into(),
+        send_info.clone(),
         tx.subscribe(),
         closed_hat,
         0x50,
@@ -54,6 +60,7 @@ pub async fn play() {
 
     spawn_pattern_thread(
         "side_stick".into(),
+        send_info.clone(),
         tx.subscribe(),
         side_stick,
         0x20,
@@ -62,6 +69,7 @@ pub async fn play() {
 
     spawn_pattern_thread(
         "open_hat_1".into(),
+        send_info.clone(),
         tx.subscribe(),
         open_hat_1,
         0x40,
@@ -70,11 +78,53 @@ pub async fn play() {
 
     spawn_pattern_thread(
         "ride_cup".into(),
+        send_info.clone(),
         tx.subscribe(),
         ride_cup,
-        0x40,
+        0x30,
         euclid(6, 10).rotate(1).fill(22),
     );
+
+    tokio::spawn(async move {
+        let mut timeline: HashMap<String, Vec<usize>> = HashMap::new();
+
+        loop {
+            let (name, i) = recv_info.recv().await.unwrap();
+            let offset = 10_usize;
+            let min = i.saturating_sub(32);
+
+            timeline
+                .entry(name)
+                .and_modify(|e| {
+                    e.push(i);
+                })
+                .or_insert(vec![i]);
+
+            let mut stdout = stdout();
+
+            stdout
+                .execute(terminal::Clear(terminal::ClearType::All))
+                .unwrap();
+
+            for (i, (name, hits)) in timeline.iter().enumerate() {
+                stdout
+                    .execute(cursor::MoveTo(0, i as u16))
+                    .unwrap()
+                    .execute(style::Print(name))
+                    .unwrap();
+
+                for &hit in hits {
+                    if hit >= min {
+                        stdout
+                            .execute(cursor::MoveTo((offset + hit - min) as u16 * 2, i as u16))
+                            .unwrap()
+                            .execute(style::Print("X"))
+                            .unwrap();
+                    }
+                }
+            }
+        }
+    });
 
     for i in 1.. {
         sleep(Duration::from_millis(200)).await;
@@ -84,6 +134,7 @@ pub async fn play() {
 
 fn spawn_pattern_thread(
     name: String,
+    send_info: Sender<(String, usize)>,
     mut rx: Receiver<usize>,
     note: u32,
     velocity: u32,
@@ -102,8 +153,8 @@ fn spawn_pattern_thread(
 
         for b in pattern.into_iter().cycle() {
             let i = rx.recv().await.unwrap();
-            println!("[{}] recv {}", name, i);
             if b == 1 {
+                send_info.send((name.clone(), i)).unwrap();
                 output_port.send(&destination, &note_off).unwrap();
                 output_port.send(&destination, &note_on).unwrap();
             }
