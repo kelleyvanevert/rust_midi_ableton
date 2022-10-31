@@ -10,3 +10,5 @@ anyhow = "1.0.66"
 coremidi = "0.7.0"
 midir = "0.8.0"
 im = "15.1.0"
+crossbeam-channel = "0.5.6"
+tokio = { version = "1.21.2", features = ["full"] }

@@ -1,12 +1,15 @@
 mod coremidi;
 mod euclid;
 mod midir;
+mod nodes;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use fundsp::hacker::*;
 
-fn main() {
-    coremidi::play();
+#[tokio::main]
+async fn main() {
+    nodes::play().await;
+    // coremidi::play();
     // println!("{:?}", euclid(13, 24));
 }
 
